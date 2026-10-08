@@ -1,0 +1,82 @@
+{
+  "model": {
+    "tag": "Model1",
+    "label": "busbar_terminal.mph",
+    "file": "C:/work/busbar_terminal.mph"
+  },
+  "parameters": {
+    "count": 12,
+    "values": {
+      "I": "100[A]",
+      "W_bus": "10[mm]",
+      "T_amb": "293.15[K]"
+    }
+  },
+  "components": [
+    {
+      "tag": "comp1",
+      "label": "Component 1",
+      "physics": [
+        {
+          "container": "physics",
+          "tag": "ht",
+          "label": "Heat Transfer in Solids",
+          "type": "HeatTransfer"
+        },
+        {
+          "container": "physics",
+          "tag": "es",
+          "label": "Electric Currents",
+          "type": "Electrostatics"
+        }
+      ],
+      "mesh": [
+        {
+          "container": "mesh",
+          "tag": "mesh1",
+          "label": "Mesh 1",
+          "statistics": {
+            "NumElem": 4912,
+            "NumVertex": 3120
+          }
+        }
+      ]
+    }
+  ],
+  "studies": [
+    {
+      "container": "study",
+      "tag": "std1",
+      "label": "Study 1",
+      "type": "Stationary"
+    }
+  ],
+  "solutions": [
+    {
+      "container": "solution",
+      "tag": "sol1",
+      "label": "Solution 1"
+    }
+  ],
+  "results": {
+    "datasets": [
+      {
+        "container": "dataset",
+        "tag": "dset1",
+        "label": "Solution 1"
+      }
+    ],
+    "plot_groups": [
+      {
+        "container": "result",
+        "tag": "pg1",
+        "label": "Mesh 1"
+      },
+      {
+        "container": "result",
+        "tag": "pg3",
+        "label": "Temperature (K)"
+      }
+    ]
+  }
+}

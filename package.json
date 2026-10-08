@@ -1,0 +1,34 @@
+{
+  "name": "dsh-comsol",
+  "version": "1.1.1",
+  "type": "module",
+  "description": "COMSOL Multiphysics workflow for DSH: the comsol-dsh agent skill (open a model in the desktop, edit parameters, rebuild the mesh, tune the solver, run steady or time-dependent studies with live progress, load results into the desktop plot, evaluate and export) on the bundled comsol-mcp engine. Toggle the plugin to enable/disable the skill everywhere.",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "assets",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "dsh-skill",
+    "comsol",
+    "multiphysics",
+    "simulation",
+    "mph",
+    "transient"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT"
+}

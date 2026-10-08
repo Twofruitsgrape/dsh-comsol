@@ -1,0 +1,5 @@
+# dsh-comsol bundle patch: mount the host half under its own name.
+- insert:
+    - id: comsol
+      name: 'dsh-comsol'
+      config: {}
