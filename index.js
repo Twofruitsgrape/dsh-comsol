@@ -59,6 +59,14 @@ async function skillMeta () {
 
 const INVOCATION = { modelInvocable: true, userInvocable: true }
 
+/**
+ * Precedence this provider's candidates carry in the DSH skill registry.
+ * Every candidate must expose a finite numeric rank, and lower ranks win
+ * duplicate skill names across providers. 600 is BUNDLED_SKILL_RANK - the
+ * rank the registry reserves for packaged skill providers.
+ */
+const SKILL_RANK = 600
+
 const provider = {
   name: PROVIDER_NAME,
   async list () {
@@ -70,6 +78,7 @@ const provider = {
       invocation: INVOCATION,
       provider: PROVIDER_NAME,
       source: 'bundled',
+      rank: SKILL_RANK,
       resourceBase: RESOURCE_BASE,
       locator: fileURLToPath(SKILL_URL),
     }]

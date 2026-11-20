@@ -7,6 +7,7 @@ import time
 
 from mcp.server.fastmcp import Context
 
+from .. import gpu as hardware
 from .. import model_access
 from ..errors import ComsolMcpError
 from ..runtime import Runtime, guarded
@@ -14,14 +15,39 @@ from ..runtime import Runtime, guarded
 log = logging.getLogger(__name__)
 
 
+def _acceleration(model, enabled: bool, single_precision: bool) -> dict:
+    """Apply the GPU switches before a solve and return what changed."""
+    result = hardware.configure(
+        model.java, enabled=enabled, single_precision=single_precision
+    )
+    result["physics"] = hardware.configure_physics(
+        model.java, enabled=enabled, single_precision=single_precision
+    )
+    return result
+
+
+def _check_study(model, study: str) -> None:
+    tags = [str(tag) for tag in model.java.study().tags()]
+    if study not in tags:
+        raise ComsolMcpError(
+            f"Study '{study}' does not exist.",
+            hint=f"Available studies: {tags or 'none'}. "
+                 "Call comsol_describe_model for details.",
+        )
+
+
 def register(mcp, runtime: Runtime) -> None:
 
     @mcp.tool()
     @guarded
-    async def comsol_solve_start(study: str | None = None) -> dict:
+    async def comsol_solve_start(
+        study: str | None = None,
+        gpu: bool | None = None,
+        gpu_single_precision: bool = False,
+    ) -> dict:
         """Start solving a study in the background and return immediately.
 
-        Use this for long solves: poll `comsol_solve_status` (percentages come
+        Use this for long solves: poll 'comsol_solve_status' (percentages come
         from COMSOL's progress log) while the COMSOL desktop shows the solution
         being built live. COMSOL has no API to cancel a solve - the Stop button
         in its progress window does that.
@@ -29,29 +55,34 @@ def register(mcp, runtime: Runtime) -> None:
         Args:
             study: study tag such as "std1" (see comsol_describe_model); omit
                 to solve every study in the model.
+            gpu: true enables COMSOL hardware acceleration before the solve
+                (HardwareAcceleration node for discontinuous Galerkin plus the
+                time-explicit acoustics formulation), false turns it off,
+                None leaves the model as it is.
+            gpu_single_precision: run the GPU in single precision.
         """
         def prepare():
             session = runtime.session
             model = session.main_model()
             if study:
-                tags = [str(tag) for tag in model.java.study().tags()]
-                if study not in tags:
-                    raise ComsolMcpError(
-                        f"Study '{study}' does not exist.",
-                        hint=f"Available studies: {tags or 'none'}. "
-                             "Call comsol_describe_model for details.",
-                    )
+                _check_study(model, study)
             session.autosnapshot("before-solve")
             if session.progress is not None:
                 session.progress.reset()
+            if gpu is None:
+                return None
+            return _acceleration(model, gpu, gpu_single_precision)
 
-        await runtime.run(prepare)
+        acceleration = await runtime.run(prepare)
         job = runtime.solve_job_start(study)
-        return {
+        result = {
             **job,
             "note": "Solving in the background. Poll comsol_solve_status; "
                     "the COMSOL desktop shows the model live.",
         }
+        if acceleration is not None:
+            result["acceleration"] = acceleration
+        return result
 
     @mcp.tool()
     @guarded
@@ -65,7 +96,12 @@ def register(mcp, runtime: Runtime) -> None:
 
     @mcp.tool()
     @guarded
-    async def comsol_solve(study: str | None = None, ctx: Context = None) -> dict:
+    async def comsol_solve(
+        study: str | None = None,
+        gpu: bool | None = None,
+        gpu_single_precision: bool = False,
+        ctx: Context = None,
+    ) -> dict:
         """Solve a study (or all studies) and stream COMSOL progress into the conversation.
 
         An automatic snapshot is taken first, so the pre-solve state stays
@@ -75,6 +111,14 @@ def register(mcp, runtime: Runtime) -> None:
         Args:
             study: study tag such as "std1" (see comsol_describe_model). Omit to
                 solve every study defined in the model.
+            gpu: true enables COMSOL hardware acceleration before the solve -
+                it adds or updates the HardwareAcceleration node under each
+                Time-Dependent solver and sets the time-explicit acoustics
+                accelerated formulation. false turns both off. None leaves the
+                model untouched. Check comsol_gpu_status first: COMSOL 6.3 needs
+                compute capability 6.0-9.0 and a CUDA 12 runtime.
+            gpu_single_precision: run the GPU in single precision (faster, less
+                exact; COMSOL defaults to double precision).
         """
         session = runtime.session
         session.require_connected()
@@ -83,26 +127,26 @@ def register(mcp, runtime: Runtime) -> None:
         def work():
             model = session.main_model()
             if study:
-                tags = [str(tag) for tag in model.java.study().tags()]
-                if study not in tags:
-                    raise ComsolMcpError(
-                        f"Study '{study}' does not exist.",
-                        hint=f"Available studies: {tags or 'none'}. "
-                             "Call comsol_describe_model for details.",
-                    )
+                _check_study(model, study)
             session.autosnapshot("before-solve")
             if session.progress is not None:
                 session.progress.reset()
+            acceleration = None
+            if gpu is not None:
+                acceleration = _acceleration(model, gpu, gpu_single_precision)
             if study:
                 model.java.study(study).run()  # by COMSOL tag, see _solve_work
             else:
                 model.solve()
-            return {
+            result = {
                 "study": study or "all studies",
                 "seconds": round(time.time() - started, 1),
                 "solutions": model_access.solutions(model.java, max_items=20),
                 "next": "Look at results with comsol_evaluate, comsol_export_plot_image "
                         "or comsol_show_results.",
             }
+            if acceleration is not None:
+                result["acceleration"] = acceleration
+            return result
 
         return await runtime.run_streaming(ctx, work, poll=1.5)

@@ -62,6 +62,13 @@ REQUIRED_TOOLS = {
     "comsol_end_session": ["save", "stop_server", "close_gui"],
 }
 
+# Tools the runner may call only behind an opt-in flag. They are not part of the
+# always-checked contract, so an engine without them still runs the basic
+# workflow; passing the flag requests the capability explicitly.
+OPTIONAL_TOOLS = {
+    "comsol_gpu_configure": ["enabled", "single_precision"],
+}
+
 
 def resolve_repo() -> Path | None:
     """Locate the comsol-mcp checkout.
@@ -90,15 +97,21 @@ def resolve_repo() -> Path | None:
 
 
 def comsol_processes() -> list[str]:
-    """Names of running COMSOL server/desktop processes (Windows)."""
+    """Names of running COMSOL server/desktop processes (Windows).
+
+    The console code page (cp936 on a Chinese Windows) does not match Python's
+    text-mode default here, so tasklist output is decoded as Latin-1: that never
+    raises and keeps the ASCII process names this function matches intact.
+    """
     try:
-        out = subprocess.run(
+        raw = subprocess.run(
             ["tasklist", "/FO", "CSV", "/NH"],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True, timeout=15,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        ).stdout
+        ).stdout or b""
     except Exception:
         return []
+    out = raw.decode("latin-1", "replace")
     names = set()
     for line in out.splitlines():
         name = line.split('","')[0].strip('"').lower()
@@ -264,7 +277,7 @@ def numeric_stats(values) -> dict | None:
     return {"min": min(flat), "max": max(flat), "mean": sum(flat) / len(flat)}
 
 
-async def check_engine_contract(session) -> list[str]:
+async def check_engine_contract(session, need_gpu: bool = False) -> list[str]:
     """Compare live tool registry against REQUIRED_TOOLS; return problems."""
     tools = await session.list_tools()
     problems = []
@@ -278,6 +291,14 @@ async def check_engine_contract(session) -> list[str]:
         missing = [p for p in params if p not in registry[name]]
         if missing:
             problems.append(f"{name} lacks parameter(s) {missing}")
+    if need_gpu:
+        if "comsol_gpu_configure" not in registry:
+            problems.append("--gpu needs comsol_gpu_configure (engine too old)")
+        else:
+            missing = [p for p in ("enabled", "single_precision")
+                       if p not in registry["comsol_gpu_configure"]]
+            if missing:
+                problems.append(f"comsol_gpu_configure lacks parameter(s) {missing}")
     return problems
 
 
@@ -341,7 +362,8 @@ async def _session_loop(params, args, model: Path, errlog) -> int:
     async with stdio_client(params, errlog=errlog) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
-            problems = await check_engine_contract(session)
+            problems = await check_engine_contract(
+                session, need_gpu=getattr(args, "gpu", False))
             if problems:
                 for line in problems:
                     print(f"  contract problem: {line}", flush=True)
@@ -470,6 +492,24 @@ async def run_workflow(session, args, model: Path) -> int:
             for line in (ftext or "").splitlines():
                 if "stale_windows_hidden" in line or "focused" in line:
                     print("   focus: " + line.strip()[:100], flush=True)
+
+        if getattr(args, "gpu", False):
+            print("\n---- 4b. gpu acceleration ----", flush=True)
+            error, gtext = await call(
+                session, "comsol_gpu_configure",
+                {"enabled": True,
+                 "single_precision": bool(getattr(args, "gpu_single_precision", False))},
+                show=1200)
+            gpu_result = parse_result(gtext) or {}
+            for target in gpu_result.get("targets") or []:
+                print(f"   {target.get('solver')}/{target.get('solver_node')} -> "
+                      f"{target.get('acceleration_node')} "
+                      f"(created={target.get('created')})", flush=True)
+            for warning in gpu_result.get("warnings") or []:
+                print(f"   WARN: {warning}", flush=True)
+            if error:
+                print("ABORT: could not configure GPU acceleration.", flush=True)
+                return 6
 
         print("\n---- 5. solve ----", flush=True)
         solve_args = {"study": args.study} if args.study else {}
@@ -628,6 +668,8 @@ def run_check_only(args) -> int:
             missing = [p for p in required if p not in registry[name]]
             if missing:
                 problems.append(f"{name} lacks {missing}")
+    if getattr(args, "gpu", False) and "comsol_gpu_configure" not in registry:
+        problems.append("--gpu needs comsol_gpu_configure (engine too old)")
     print(f"engine tools: {len(registry)}", flush=True)
     if problems:
         for line in problems:
@@ -691,6 +733,15 @@ def main() -> int:
                         help="skip the mesh size change + rebuild")
     parser.add_argument("--no-solver-tweak", action="store_true",
                         help="skip the solver tolerance/plot tweak")
+    parser.add_argument("--gpu", action="store_true",
+                        help="turn on COMSOL hardware acceleration before the "
+                             "solve (HardwareAcceleration node for dG plus the "
+                             "time-explicit acoustics formulation). Only helps "
+                             "on dG/time-explicit models with a supported NVIDIA "
+                             "GPU (compute capability 6.0-9.0) and a CUDA 12 "
+                             "runtime; check with comsol_gpu_status first")
+    parser.add_argument("--gpu-single-precision", action="store_true",
+                        help="with --gpu: run the GPU in single precision")
     parser.add_argument("--expression", default=None,
                         help="expression to evaluate after solving "
                              "(default: auto-pick from physics)")

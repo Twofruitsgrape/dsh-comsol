@@ -24,7 +24,11 @@ def test_required_tools_cover_every_call_site():
     source = (SKILL_ROOT / "scripts" / "run_workflow.py").read_text(encoding="utf-8")
     called = set(re.findall(r'call\([^,]+,\s*"(comsol_[a-z_]+)"', source))
     assert called, "no tool calls found - the scanner broke"
-    assert called <= set(rw.REQUIRED_TOOLS), called - set(rw.REQUIRED_TOOLS)
+    declared = set(rw.REQUIRED_TOOLS) | set(rw.OPTIONAL_TOOLS)
+    assert called <= declared, called - declared
+    assert not set(rw.REQUIRED_TOOLS) & set(rw.OPTIONAL_TOOLS), (
+        "a tool is both required and optional"
+    )
 
 
 def test_engine_registry_matches_required_tools():

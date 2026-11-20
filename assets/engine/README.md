@@ -64,7 +64,7 @@
 
    > 启动会话并打开 `E:\models\busbar.mph`，告诉我模型结构；然后把铜的电导率改成 5.8e7，重建网格并求解，导出电势分布图。
 
-### 工具一览（31 个）
+### 工具一览（33 个）
 
 | 分组 | 工具 |
 |---|---|
@@ -74,6 +74,7 @@
 | 理解模型 | `comsol_describe_model`, `comsol_node_tree`, `comsol_get_property`, `comsol_export_source` |
 | 修改模型 | `comsol_get_parameters`, `comsol_set_parameters`, `comsol_set_property`, `comsol_run_feature`, `comsol_mesh` |
 | 计算 | `comsol_solve`（阻塞式，进度实时进对话）；`comsol_solve_start` / `comsol_solve_status`（后台求解 + 轮询，适合长计算） |
+| GPU 加速 | `comsol_gpu_status`（读求解器加速节点 + 本机 CUDA/显卡是否达标）, `comsol_gpu_configure`（创建/开关 HardwareAcceleration 节点与"压力声学，时域显式"的加速公式）；`comsol_solve(gpu=True)` 一步到位 |
 | 后处理 | `comsol_evaluate`, `comsol_export_output`, `comsol_export_plot_image`, `comsol_show_results`, `comsol_run_python`（高级，需显式开启） |
 
 ### 安全设计
