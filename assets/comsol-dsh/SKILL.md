@@ -45,6 +45,39 @@ resident for every DSH session.)
   background task lives in another Windows session and is invisible to
   the user. If the user wants to watch, run in their own terminal.
 
+## GPU acceleration (COMSOL 6.3)
+
+COMSOL 6.3 runs on a GPU in exactly three situations: time-explicit pressure
+acoustics (dG-FEM), a Hardware Acceleration node under a Time-Dependent solver
+for discontinuous Galerkin, and DNN surrogate training. Every other solver -
+stationary or implicit transient FEM - stays on the CPU; a GPU buys nothing
+there, so do not offer acceleration for a steady electro-thermal model.
+
+Two model-side switches, both exposed by the engine:
+
+| Where | Switch | Property names |
+|---|---|---|
+| solver node, e.g. `solution/sol1/feature/t1` | HardwareAcceleration feature (tag `ha1`) | `dgacc`, `gpuresidual`, `gpusingleprecision`, `usemaxblocksize` |
+| physics interface, e.g. `physics/acpr` (Pressure Acoustics, Time Explicit) | SolverSettings group | `AcceleratedFormulation`, `GPUResidual`, `GPUSinglePrecision` |
+
+Playbook:
+
+1. `comsol_gpu_status` - read `host.conclusion` **before** promising anything.
+   COMSOL 6.3 needs compute capability 6.0-9.0 and a CUDA 12 runtime: it loads
+   `cudart64_12.dll` / `cublas64_12.dll`, so a CUDA 13-only toolkit
+   (`cudart64_13`) does not qualify, and RTX 50-series cards (12.0) sit outside
+   the support matrix.
+2. `comsol_gpu_configure(enabled=True, single_precision=False)` - creates
+   `ha1` under each Time-Dependent solver node and sets the interface flag.
+3. `comsol_solve(study="std1", gpu=True)` - the same switches, applied right
+   before the solve; `gpu=False` turns them off again.
+
+Hard notes: single precision is faster and less exact (COMSOL defaults to double
+precision, and Compute residual on GPU stays on); multi-GPU needs a floating
+network license; the switches are model-side only - on an unsupported card the
+solve still runs on the CPU, so never report a speed-up that was not measured.
+The one-command workflow accepts `--gpu` (and `--gpu-single-precision`).
+
 ## The one-command workflow (recommended)
 
 ```powershell
@@ -65,7 +98,7 @@ expression auto-picked from the physics (T / solid.mises / es.normE), plot group
 auto-picked by label. Other flags: `--hauto N|none`, `--no-mesh`,
 `--no-solver-tweak`, `--study std1`, `--dataset dset1`, `--expression`,
 `--plot-hint`, `--timeout`, `--port`, `--reuse-port`, `--no-close`,
-`--mcp-repo`.
+`--gpu`, `--gpu-single-precision`, `--mcp-repo`.
 
 Lock/port guard: `<model>.mph.lock` is deleted only when no COMSOL process is
 live (`--allow-live-lock` to force); the run aborts if the port is already
